@@ -18,3 +18,15 @@ set_target_properties(rayleigh PROPERTIES FOLDER "plugins")
 set_target_properties(kkay PROPERTIES FOLDER "plugins")
 set_target_properties(microflake PROPERTIES FOLDER "plugins")
 set_target_properties(mixturephase PROPERTIES FOLDER "plugins")
+
+add_library(sggx_volume SHARED sggx_volume.cpp)
+target_link_libraries(sggx_volume mitsuba-python)
+set_target_properties(sggx_volume PROPERTIES FOLDER "plugins")
+
+add_library(wet_tabulated_v2 SHARED wet_tabulated_v2.cpp)
+target_link_libraries(wet_tabulated_v2 mitsuba-python)
+set_target_properties(wet_tabulated_v2 PROPERTIES FOLDER "plugins")
+
+add_library(hg2 SHARED hg2.cpp)
+target_link_libraries(hg2 mitsuba-python)
+set_target_properties(hg2 PROPERTIES FOLDER "plugins")

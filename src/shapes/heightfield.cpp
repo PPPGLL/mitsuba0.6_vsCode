@@ -17,6 +17,10 @@
 */
 
 #include <mitsuba/render/shape.h>
+#include <cfloat>
+#include <limits>
+#include <cmath>
+#include <fstream>
 #include <mitsuba/render/bsdf.h>
 #include <mitsuba/render/emitter.h>
 #include <mitsuba/render/medium.h>
@@ -53,6 +57,7 @@ namespace {
     /// Temporary storage for patch-ray intersections
     struct PatchIntersectionRecord {
         Point p;
+        Point worldP;
         int x, y;
     };
 
@@ -132,6 +137,7 @@ public:
         m_flipNormals = props.getBoolean("flipNormals", false);
         m_scale = props.getFloat("scale", 1);
 
+        m_snapshot = props.getString("gpuSnapshot", "");
         m_filename = props.getString("filename", "");
         if (!m_filename.empty())
             m_filename = Thread::getThread()->getFileResolver()->resolve(m_filename);
@@ -208,166 +214,109 @@ public:
             return 0;
     }
 
+    // Strict piecewise-bilinear intersection. Traverse real XY cells front-to-back.
+    // Double arithmetic avoids cell-coordinate rounding; no Epsilon extension.
     bool rayIntersect(const Ray &_ray, Float mint, Float maxt, Float &t, void *tmp) const {
-        StackEntry stack[MTS_QTREE_MAXDEPTH];
-
-        /* Transform ray into object space */
-        Ray ray;
-        m_objectToWorld.inverse()(_ray, ray);
-
-        /* Ray length to cross a single cell along the X or Y axis */
-        Float tDeltaXSingle = std::abs(ray.dRcp.x),
-              tDeltaYSingle = std::abs(ray.dRcp.y);
-
-        /* Cell coordinate increments for steps along the ray */
-        int iDeltaX = signumToInt(ray.d.x),
-            iDeltaY = signumToInt(ray.d.y);
-
-        int stackIdx = 0;
-
-        #if MTS_QTREE_FASTSTART
-            /* If the entire ray is restricted to a subtree of the quadtree,
-               directly start the traversal from the there instead of the root
-               node. This can save some unnecessary work. */
-            {
-                Point enterPt, exitPt;
-                Float nearT = mint, farT = maxt;
-                if (!m_dataAABB.rayIntersect(ray, nearT, farT, enterPt, exitPt))
-                    return false;
-
-                /* Determine minima and maxima in integer coordinates (round down!) */
-                int minX = (int) std::min(enterPt.x, exitPt.x),
-                    maxX = (int) std::max(enterPt.x, exitPt.x),
-                    minY = (int) std::min(enterPt.y, exitPt.y),
-                    maxY = (int) std::max(enterPt.y, exitPt.y);
-
-                /* Determine quadtree level */
-                int level = math::clamp(1 + math::log2i(
-                    std::max((uint32_t) (minX ^ maxX), (uint32_t) (minY ^ maxY))),
-                    0, m_levelCount-1);
-
-                /* Compute X and Y coordinates at that level */
-                const Vector2i &blockSize = m_blockSize[level];
-                int x = math::clamp(minX / blockSize.x, 0, m_levelSize[level].x-1),
-                    y = math::clamp(minY / blockSize.y, 0, m_levelSize[level].y-1);
-
-                stack[stackIdx].level = level;
-                stack[stackIdx].x = x;
-                stack[stackIdx].y = y;
+        const Matrix4x4 &matrix = m_objectToWorld.getInverseMatrix();
+        double o[3], d[3];
+        for (int k=0; k<3; ++k) {
+            o[k]=(double)matrix.m[k][3]; d[k]=0;
+            for (int j=0; j<3; ++j) {
+                o[k]+=(double)matrix.m[k][j]*(double)_ray.o[j];
+                d[k]+=(double)matrix.m[k][j]*(double)_ray.d[j];
             }
-        #else
-            /* Start traversal from the root node of the quadtree */
-            stack[stackIdx].level = m_levelCount-1;
-            stack[stackIdx].x = 0;
-            stack[stackIdx].y = 0;
-        #endif
-
-        numTraversals.incrementBase();
-
-        size_t nTraversals = 0;
-        while (stackIdx >= 0) {
-            ++nTraversals;
-
-            /* Pop a node from the stack and compute its bounding box */
-            StackEntry entry         = stack[stackIdx--];
-            const Interval &interval = m_minmax[entry.level][
-                entry.x + entry.y * m_levelSize[entry.level].x];
-            const Vector2 &blockSize = m_blockSizeF[entry.level];
-            AABB aabb(
-                Point3(0, 0, interval.min),
-                Point3(blockSize.x, blockSize.y, interval.max)
-            );
-
-            /* Intersect the ray against the bounding box, in local coordinates */
-            Ray localRay(Point(ray.o.x - entry.x*blockSize.x,
-                               ray.o.y - entry.y*blockSize.y, ray.o.z), ray.d, 0);
-            Float nearT = mint, farT = maxt;
-            Point enterPt, exitPt;
-
-            if (!aabb.rayIntersect(localRay, nearT, farT, enterPt, exitPt)) {
-                /* The bounding box was not intersected -- skip */
-                continue;
-            }
-
-            Float tMax = farT - nearT;
-
-            if (entry.level > 0) {
-                /* Inner node -- push child nodes in 2D DDA order */
-                const Vector2i &numChildren = m_numChildren[entry.level];
-                const Vector2 &subBlockSize = m_blockSizeF[--entry.level];
-                entry.x *= numChildren.x; entry.y *= numChildren.y;
-
-                int x = (exitPt.x >= subBlockSize.x) ? numChildren.x-1 : 0;
-                int y = (exitPt.y >= subBlockSize.y) ? numChildren.y-1 : 0;
-
-                Float tDeltaX = tDeltaXSingle * subBlockSize.x,
-                      tDeltaY = tDeltaYSingle * subBlockSize.y,
-                      tNextX  = nextMultiple(-ray.d.x, exitPt.x, subBlockSize.x),
-                      tNextY  = nextMultiple(-ray.d.y, exitPt.y, subBlockSize.y),
-                      t       = 0;
-
-                while ((uint32_t) x < (uint32_t) numChildren.x &&
-                       (uint32_t) y < (uint32_t) numChildren.y && t <= tMax) {
-                    stack[++stackIdx].level = entry.level;
-                    stack[stackIdx].x = entry.x + x;
-                    stack[stackIdx].y = entry.y + y;
-
-                    if (tNextX < tNextY) {
-                        t = tNextX;
-                        tNextX += tDeltaX;
-                        x -= iDeltaX;
-                    } else {
-                        t = tNextY;
-                        tNextY += tDeltaY;
-                        y -= iDeltaY;
-                    }
-                }
-            } else {
-                /* Intersect the ray against a bilinear patch */
-                Float
-                    f00 = m_data[entry.y * m_dataSize.x + entry.x],
-                    f01 = m_data[(entry.y + 1) * m_dataSize.x + entry.x],
-                    f10 = m_data[entry.y * m_dataSize.x + entry.x + 1],
-                    f11 = m_data[(entry.y + 1) * m_dataSize.x + entry.x + 1];
-
-                Float A = ray.d.x * ray.d.y * (f00 - f01 - f10 + f11);
-                Float B = ray.d.y * (f01 - f00 + enterPt.x * (f00 - f01 - f10 + f11))
-                        + ray.d.x * (f10 - f00 + enterPt.y * (f00 - f01 - f10 + f11))
-                        - ray.d.z;
-                Float C = (enterPt.x - 1) * (enterPt.y - 1) * f00
-                        + enterPt.y * f01 + enterPt.x * (f10 - enterPt.y * (f01 + f10 - f11))
-                        - enterPt.z;
-
-                Float t0, t1;
-                if (!solveQuadratic(A, B, C, t0, t1))
-                    continue;
-
-                Float min = std::max(-Epsilon, mint - nearT);
-                Float max = std::min(tMax + Epsilon, maxt - nearT);
-
-                if (t0 >= min && t0 <= max)
-                    t = t0;
-                else if (t1 >= min && t1 <= max)
-                    t = t1;
-                else
-                    continue;
-
-                if (tmp) {
-                    PatchIntersectionRecord &temp = *((PatchIntersectionRecord *) tmp);
-                    Point pLocal = enterPt + ray.d * t;
-                    temp.x = entry.x;
-                    temp.y = entry.y;
-                    temp.p = pLocal;
-                    t += nearT;
-                }
-                numTraversals += nTraversals;
-                return true;
+            if (!std::isfinite(o[k]) || !std::isfinite(d[k])) return false;
+        }
+        if (d[0]==0 && d[1]==0 && d[2]==0) return false;
+        double near=(double)mint, far=(double)maxt;
+        for (int k=0; k<3; ++k) {
+            double low=(double)m_dataAABB.min[k], high=(double)m_dataAABB.max[k];
+            if (d[k]==0) { if (o[k]<low || o[k]>high) return false; }
+            else {
+                double a=(low-o[k])/d[k], b=(high-o[k])/d[k];
+                if (a>b) std::swap(a,b);
+                near=std::max(near,a); far=std::min(far,b);
             }
         }
-
-        numTraversals += nTraversals;
-        return false;
+        if (near>far) return false;
+        int nx=m_dataSize.x-1, ny=m_dataSize.y-1;
+        double uvTol=64*DBL_EPSILON*(1+std::max(nx,ny));
+        int cell[2], step[2];
+        for (int k=0; k<2; ++k) {
+            double p=o[k]+near*d[k], nearest=std::round(p);
+            cell[k]=(int)std::floor(p);
+            if (d[k]<0 && std::abs(p-nearest)<=uvTol) cell[k]=(int)nearest-1;
+            cell[k]=std::max(0,std::min((k==0?nx:ny)-1,cell[k]));
+            step[k]=d[k]>0?1:(d[k]<0?-1:0);
+        }
+        numTraversals.incrementBase(); size_t traversals=0;
+        while (cell[0]>=0 && cell[0]<nx && cell[1]>=0 && cell[1]<ny && near<=far) {
+            ++traversals;
+            int x=cell[0], y=cell[1], w=m_dataSize.x;
+            double crossing[2];
+            for (int k=0;k<2;++k)
+                crossing[k]=d[k]==0?std::numeric_limits<double>::infinity():
+                    ((double)(cell[k]+(step[k]>0?1:0))-o[k])/d[k];
+            double end=std::min(far,std::min(crossing[0],crossing[1]));
+            double duration=end-near;
+            double u=o[0]+near*d[0]-x, v=o[1]+near*d[1]-y;
+            double h00=m_data[y*w+x], h10=m_data[y*w+x+1],
+                   h01=m_data[(y+1)*w+x], h11=m_data[(y+1)*w+x+1];
+            double f[3];
+            for (int k=0;k<3;++k) {
+                double s=.5*k, us=u+s*duration*d[0], vs=v+s*duration*d[1];
+                f[k]=(1-us)*(1-vs)*h00+us*(1-vs)*h10+(1-us)*vs*h01+us*vs*h11
+                    -(o[2]+(near+s*duration)*d[2]);
+            }
+            double A=2*(f[2]+f[0]-2*f[1]), B=f[2]-f[0]-A, C=f[0];
+            double roots[2]; int nr=0;
+            bool linear=std::abs(A)<=64*DBL_EPSILON*std::max(std::max(std::abs(B),std::abs(C)),1e-300);
+            if (duration==0) {
+                if (std::abs(f[0])<=32*DBL_EPSILON*(1+std::abs(o[2]))) roots[nr++]=0;
+            } else if (linear) {
+                if (B!=0) roots[nr++]=-C/B;
+                else if (std::abs(C)<=32*DBL_EPSILON*(1+std::abs(o[2]))) roots[nr++]=0;
+            } else {
+                double discriminant=B*B-4*A*C;
+                if (discriminant>=0) {
+                    double q=-.5*(B+std::copysign(std::sqrt(discriminant),B));
+                    if (q==0) roots[nr++]=-B/(2*A);
+                    else { roots[nr++]=q/A; roots[nr++]=C/q; }
+                }
+            }
+            double best=std::numeric_limits<double>::infinity(), bestU=0, bestV=0;
+            double tTol=64*DBL_EPSILON*(1+std::abs(near)+std::abs(end));
+            for (int k=0;k<nr;++k) {
+                double candidate=near+roots[k]*duration;
+                double cu=o[0]+candidate*d[0]-x, cv=o[1]+candidate*d[1]-y;
+                if (!std::isfinite(candidate) || candidate<(double)mint || candidate>(double)maxt
+                    || candidate<near-tTol || candidate>end+tTol
+                    || cu<-uvTol || cu>1+uvTol || cv<-uvTol || cv>1+uvTol) continue;
+                if (candidate<best) { best=candidate; bestU=cu; bestV=cv; }
+            }
+            if (std::isfinite(best)) {
+                t=(Float)best;
+                if (tmp) {
+                    PatchIntersectionRecord &record=*((PatchIntersectionRecord *)tmp);
+                    record.x=x; record.y=y;
+                    record.p=Point((Float)std::max(0.,std::min(1.,bestU)),
+                        (Float)std::max(0.,std::min(1.,bestV)),(Float)(o[2]+best*d[2]));
+                    for (int k=0;k<3;++k)
+                        record.worldP[k]=(Float)((double)_ray.o[k]+best*(double)_ray.d[k]);
+                }
+                numTraversals+=traversals; return true;
+            }
+            if (end>=far) break;
+            bool advanced=false;
+            for (int k=0;k<2;++k) if (step[k] && crossing[k]<=end+tTol) {
+                cell[k]+=step[k]; advanced=true;
+            }
+            if (!advanced) break;
+            near=end;
+        }
+        numTraversals+=traversals; return false;
     }
+
 
     void fillIntersectionRecord(const Ray &ray,
             const void *tmp, Intersection &its) const {
@@ -382,7 +331,7 @@ public:
 
         Point pLocal(temp.p.x + temp.x, temp.p.y + temp.y, temp.p.z);
         its.uv = Point2(pLocal.x * m_invSize.x, pLocal.y * m_invSize.y);
-        its.p  = m_objectToWorld(pLocal);
+        its.p  = temp.worldP;
         its.dpdu = m_objectToWorld(Vector(1, 0,
             (1.0f - temp.p.y) * (f10 - f00) + temp.p.y * (f11 - f01)) * m_levelSize0f.x);
         its.dpdv = m_objectToWorld(Vector(0, 1,
@@ -656,6 +605,15 @@ public:
         Log(EInfo, "Done (took %i ms, uses %s of memory)", timer->getMilliseconds(),
                 memString(storageSize).c_str());
 
+        if (!m_snapshot.empty()) {
+            std::ofstream out(m_snapshot.c_str(), std::ios::binary);
+            int header[2]={m_dataSize.x,m_dataSize.y};
+            out.write((const char*)header,sizeof(header));
+            size_t count=(size_t)m_dataSize.x*m_dataSize.y;
+            out.write((const char*)m_data,count*sizeof(Float));
+            out.write((const char*)m_normals,count*sizeof(Normal));
+            if(!out.good()) Log(EError,"GPU diagnostic snapshot failed");
+        }
         m_dataAABB = AABB(
             Point3(0, 0, m_minmax[m_levelCount-1][0].min),
             Point3(m_levelSize0f.x, m_levelSize0f.y, m_minmax[m_levelCount-1][0].max)
@@ -745,6 +703,7 @@ public:
 
     MTS_DECLARE_CLASS()
 private:
+    std::string m_snapshot;
     ref<ReconstructionFilter> m_rfilter;
     ref<Bitmap> m_bitmap;
     Transform m_objectToWorld;

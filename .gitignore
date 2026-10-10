@@ -67,3 +67,12 @@ data/windows/wmain_stub.obj
 
 CMakeFiles/
 CMakeCache.txt
+
+# Local dependency archives and generated research outputs
+/dependencies.rar
+/training_loss_curve.png
+/src/utils/scene/ellipsoids_sv_color.xml
+/src/utils/scene/microstrcture_ellipsoids_aniso_fix.xml
+/src/utils/scene/microstrcture_ellipsoids_aniso_pos.xml
+/src/utils/scene/poisson_spheres_wrapped_500size.xml
+/src/utils/scene/pyramid_0.15_uniform.xml

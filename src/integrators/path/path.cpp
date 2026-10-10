@@ -179,6 +179,7 @@ public:
 
                     /* Allocate a record for querying the BSDF */
                     BSDFSamplingRecord bRec(its, its.toLocal(dRec.d), ERadiance);
+                    bRec.sampler = rRec.sampler;//added by PGL
 
                     /* Evaluate BSDF * cos(theta) */
                     const Spectrum bsdfVal = bsdf->eval(bRec);

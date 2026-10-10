@@ -66,6 +66,37 @@ set_target_properties(hk PROPERTIES FOLDER "plugins")
 set_target_properties(null PROPERTIES FOLDER "plugins")
 set_target_properties(thindielectric PROPERTIES FOLDER "plugins")
 
+# microstructure
+add_library(conductorSchlick SHARED conductor_Schlick.cpp)
+target_link_libraries(conductorSchlick mitsuba-python)
+set_target_properties(conductorSchlick PROPERTIES FOLDER "plugins")
+
+add_library(roughconductorSchlick SHARED roughconductor_Schlick.cpp)
+target_link_libraries(roughconductorSchlick mitsuba-python)
+set_target_properties(roughconductorSchlick PROPERTIES FOLDER "plugins")
+
 add_library(irawan irawan.cpp)
 target_link_libraries(irawan mitsuba-python)
 set_target_properties(irawan PROPERTIES FOLDER "plugins")
+
+# wetspongecake
+add_library(wetspongecake_hapkeclamped_ours_ani SHARED wetspongecake_hapkeClamped_ours_ani.cpp)
+target_link_libraries(wetspongecake_hapkeclamped_ours_ani mitsuba-python)
+set_target_properties(wetspongecake_hapkeclamped_ours_ani PROPERTIES FOLDER "plugins")
+
+add_library(lambert_sphere SHARED lambert_sphere.cpp)
+target_link_libraries(lambert_sphere mitsuba-python)
+set_target_properties(lambert_sphere PROPERTIES FOLDER "plugins")
+
+add_library(semi-infinit_wetspongecake SHARED semi-infinit_wetspongecake.cpp)
+target_link_libraries(semi-infinit_wetspongecake mitsuba-python)
+set_target_properties(semi-infinit_wetspongecake PROPERTIES FOLDER "plugins")
+
+add_library(spongecake_eval SHARED spongecake_eval.cpp)
+target_link_libraries(spongecake_eval mitsuba-python)
+set_target_properties(spongecake_eval PROPERTIES FOLDER "plugins")
+
+#postprocess
+add_library(postprocess SHARED postprocess.cpp)
+target_link_libraries(postprocess mitsuba-python)
+set_target_properties(postprocess PROPERTIES FOLDER "plugins")

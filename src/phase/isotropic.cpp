@@ -73,8 +73,19 @@ public:
         return 1.0f;
     }
 
+    Float sample_wet(PhaseFunctionSamplingRecord &pRec,
+		Sampler *sampler, Float &pdf, Float saturation) const{
+        pRec.wo = warp::squareToUniformSphere(sampler->next2D());
+        pdf = warp::squareToUniformSpherePdf();
+        return 1.0f;
+    }
+
     Float eval(const PhaseFunctionSamplingRecord &pRec) const {
         return warp::squareToUniformSpherePdf();
+    }
+
+    Float eval_wet(const PhaseFunctionSamplingRecord &pRec, Float saturation) const{
+        return eval(pRec);
     }
 
     Float getMeanCosine() const {
@@ -83,6 +94,16 @@ public:
 
     std::string toString() const {
         return "IsotropicPhaseFunction[]";
+    }
+
+    bool needsDirectionallyVaryingCoefficients() const { return true; }
+
+    Float DsDv() const {
+		return 1;
+	}
+
+    Float sigmaDir(const Vector &orentation, const Vector &wi) const {
+        return 1;
     }
 
     MTS_DECLARE_CLASS()

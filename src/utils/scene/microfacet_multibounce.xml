@@ -1,0 +1,118 @@
+<?xml version='1.0' encoding='utf-8'?>
+<scene version="0.5.0">
+
+	<integrator type="path_layered">
+		<integer name="maxDepth" value="500" />
+		<integer name="rrDepth" value="50" />
+	</integrator>
+
+	<sensor type="perspective">
+		<transform name="toWorld">
+			<lookat target="0, 0, 0" origin="0, 0, 100" up="0, 1, 0" />
+		</transform>
+
+		<float name="fov" value="6" />
+	
+		<sampler type="independent">
+			<integer name="sampleCount" value="1024" />
+		</sampler>
+
+ 		<film id="film" type="hdrfilm">
+			<integer name="width" value="512" />
+			<integer name="height" value="512" />
+			<string name="fileFormat" value="openexr" />
+			<boolean name="banner" value="false" />
+		</film>
+	</sensor>
+
+	<!-- <shape type="obj">
+			<string name="filename" value="meshes/beckmann_surface_r0.3_500size.obj"/>
+			<transform name="toWorld">
+				<scale x="1.0" y="1.0" z="1.0" />
+				<translate x="0.0" y="0.0" z="0" />
+			</transform>
+			<bsdf type="conductor">
+				<string name="material" value="Cu"/>
+			</bsdf>
+	</shape>	 -->
+
+	<shape type="shapegroup" id="myShapeGroup">
+		<shape type="obj">
+			<string name="filename" value="meshes/beckmann_surface_r0.5_0.01scale.obj"/>
+			<transform name="toWorld">
+				<scale x="0.3" y="0.3" z="0.3" />
+				<translate x="0.0" y="0.0" z="0" />
+			</transform>
+			<bsdf type="conductor">
+				<string name="material" value="Cu"/>
+			</bsdf>
+		</shape>	
+	</shape>
+
+
+	<shape type="instance">
+		<ref id="myShapeGroup"/>
+		<transform name="toWorld">
+			<translate x="-5" y="-5" z="0" />
+		</transform>
+	</shape>
+	<shape type="instance">
+		<ref id="myShapeGroup"/>
+		<transform name="toWorld">
+			<translate x="0" y="-5" z="0" />
+		</transform>
+	</shape>
+	<shape type="instance">
+		<ref id="myShapeGroup"/>
+		<transform name="toWorld">
+			<translate x="5" y="-5" z="0" />
+		</transform>
+	</shape>
+	<shape type="instance">
+		<ref id="myShapeGroup"/>
+		<transform name="toWorld">
+			<translate x="-5" y="0" z="0" />
+		</transform>
+	</shape>
+	<shape type="instance">
+		<ref id="myShapeGroup"/>
+		<transform name="toWorld">
+			<translate x="0" y="0" z="0" />
+		</transform>
+	</shape>
+	<shape type="instance">
+		<ref id="myShapeGroup"/>
+		<transform name="toWorld">
+			<translate x="5" y="0" z="0" />
+		</transform>
+	</shape>
+	<shape type="instance">
+		<ref id="myShapeGroup"/>
+		<transform name="toWorld">
+			<translate x="-5" y="5" z="0" />
+		</transform>
+	</shape>
+	<shape type="instance">
+		<ref id="myShapeGroup"/>
+		<transform name="toWorld">
+			<translate x="0" y="5" z="0" />
+		</transform>
+	</shape>
+	<shape type="instance">
+		<ref id="myShapeGroup"/>
+		<transform name="toWorld">
+			<translate x="5" y="5" z="0" />
+		</transform>
+	</shape>
+
+
+	<emitter type="envmap">
+		<string name="filename" value="textures/envmap.exr" />
+		<float name="scale" value="1.0" />
+
+		<transform name="toWorld">
+			<rotate y="1" angle="210" />
+			<scale x="1" y="1" z="1" />
+		</transform>
+	</emitter>
+</scene>

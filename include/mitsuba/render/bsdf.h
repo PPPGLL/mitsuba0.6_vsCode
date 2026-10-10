@@ -190,6 +190,8 @@ public:
      * \brief Stores the component index that was sampled by \ref BSDF::sample()
      */
     int sampledComponent;
+
+    int bounces;
 };
 
 

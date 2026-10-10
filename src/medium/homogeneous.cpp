@@ -399,6 +399,24 @@ public:
         return true;
     }
 
+    void setMediumPropWet(const Float &density, const Spectrum &albedo, const Vector &orientation, const Float &saturation, const Spectrum &sigmaWet) {
+
+	}
+
+    /// # add by GY
+    void setSigmaAST(const Spectrum &sigmaT, const Spectrum &albedo) { 
+        m_sigmaT = sigmaT;
+        m_sigmaS = albedo * m_sigmaT;
+        m_sigmaA = m_sigmaT - m_sigmaS;
+        m_albedo = 0;
+        for (int i = 0; i<SPECTRUM_SAMPLES; ++i) {
+            if (m_sigmaT[i] > 0) {
+                m_albedo = std::max(m_albedo, m_sigmaS[i] / m_sigmaT[i]);
+            }
+        }
+		m_mediumSamplingWeight = 1.0;  //std::max(m_albedo, (Float) 0.5f);
+    }
+
     std::string toString() const {
         std::ostringstream oss;
         oss << "HomogeneousMedium[" << endl

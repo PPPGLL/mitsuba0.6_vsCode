@@ -4,6 +4,8 @@ project(Mitsuba)
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(MTS_VERSION "0.6.0")
+
 # set(ENV{http_proxy}  "http://127.0.0.1:10809") # for http
 # set(ENV{https_proxy} "http://127.0.0.1:10809") # for https
 
